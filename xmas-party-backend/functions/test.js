@@ -1,0 +1,12 @@
+'use strict';
+const assert=require('node:assert/strict'),crypto=require('node:crypto');
+const {newRoom,run,makeDerangement}=require('./core');
+let now=10000,seq=0;const deps={now:()=>now,rand:n=>crypto.randomInt(n),id:()=>String(++seq),token:()=>String(++seq).padStart(36,'a'),hash:t=>crypto.createHash('sha256').update(t).digest('hex')};
+let count=0;for(let n=2;n<=40;n++){const ids=Array.from({length:n},(_,i)=>String(i));for(let k=0;k<100;k++){const a=makeDerangement(ids,deps.rand);assert.equal(new Set(a).size,n);assert(a.every((x,i)=>x!==ids[i]));count++;}}
+let {pub,priv,result}=newRoom('host',{title:'測試聖誕派對',budget:'500'},deps);const hostCode=result.recovery;
+function act(uid,a,d={}){const x=run(pub,priv,uid,a,d,deps);pub=x.pub;priv=x.priv;return x.result;}
+const codes=[];for(let i=0;i<8;i++)codes.push(act('u'+i,'join',{name:'虛構角色'+i,role:i,gift:'禮物'+i}).recovery);
+assert.throws(()=>act('other','join',{name:'虛構角色0',role:0}));assert.throws(()=>act('u0','start'));assert.throws(()=>act('other','reveal',{round:1}));assert.throws(()=>act('other','recover',{recovery:'bad'}));
+act('host','start');assert.throws(()=>act('u0','reveal',{round:1}));assert.throws(()=>act('host','start'));assert.throws(()=>act('late','join',{name:'遲到',role:1}));assert(!JSON.stringify(pub).includes('禮物0'));assert(!('assignments'in pub));
+now+=5000;const first=act('u0','reveal',{round:1});assert.notEqual(first.recipient,'虛構角色0');assert.deepEqual(act('u0','reveal',{round:1}),first);act('newDevice','recover',{recovery:codes[0]});assert.throws(()=>act('u0','view',{round:1}));assert.deepEqual(act('newDevice','view',{round:1}),first);
+const prior=JSON.stringify(priv.assignments);act('host','wheel');act('host','task');assert.equal(JSON.stringify(priv.assignments),prior);for(let i=1;i<8;i++)act('u'+i,'reveal',{round:1});assert(pub.members.every(p=>p.revealed));act('newHost','recoverHost',{recovery:hostCode});assert.throws(()=>act('host','reset',{round:1,confirm:'RESET'}));act('newHost','reset',{round:1,confirm:'RESET'});assert.equal(pub.round,2);assert.equal(pub.phase,'lobby');assert.equal(Object.keys(priv.assignments).length,0);assert.throws(()=>act('newDevice','view',{round:1}));console.log('PASS '+count+' derangements and 8-person permission, recovery, idempotency, game isolation, reset checks');
